@@ -36,7 +36,6 @@ def test_create():
         assert model.FileVersion == 4
         assert model.ComputationalGrid.DX == 1000.0
 
-        model.TimingInfo.StopTime = 1
         model.write(file_format="yaml")
         model.run()
 
@@ -49,7 +48,8 @@ def test_compare():
     directory_path = os.path.dirname(runscript_path)
     initial_press_np = parflow.read_pfb(f"{directory_path}/ss_pressure_head.pfb")
     print("IN PRESS_SHAPE", initial_press_np.shape)
-    print("IN PRESS", initial_press_np[9])
-    out_press_np = parflow.read_pfb(f"{directory_path}/pf_util.out.press.00000.pfb")
+    z = 9
+    print(f"IN PRESS z {z}", initial_press_np[z])
+    out_press_np = parflow.read_pfb(f"{directory_path}/pf_util.out.press.00001.pfb")
     print("OUT PRESS SHAPE", out_press_np.shape)
-    print("OUT PRESS", out_press_np[23])
+    print(f"OUT PRESS z {z}", out_press_np[z])

@@ -106,7 +106,7 @@ def create_topology(runscript_path: str, options: dict):
     end_time_dt = datetime.datetime.strptime(end_time, "%Y-%m-%d")
     days_between = (end_time_dt - start_time_dt).days
     print("DAYS BETWEEN", days_between)
-    model.TimingInfo.StopTime = 24 * days_between
+    model.TimingInfo.StopTime = 24 * int(days_between)
 
     model.write(file_format="yaml")
 
@@ -169,13 +169,16 @@ def create_dist_files(runscript_path: str, options: dict):
     p = int(options.get("p", "1"))
     q = int(options.get("q", "1"))
 
+
     st.dist_run(
         topo_p=p,
         topo_q=p,
         runscript_path=runscript_path,
         dist_clim_forcing=True,
     )
-
+    model = parflow.Run.from_definition(runscript_path)
+    model.ComputationalGrid.NZ = 10
+    model.write(file_format="yaml")
 
 def get_time_space_options(options):
     """
