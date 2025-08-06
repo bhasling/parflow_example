@@ -14,7 +14,7 @@ def create_model(
     runname: str,
     options: dict,
     directory_path: str,
-    template_path: str = "../src/conus2_transient_solid.yaml",
+    template_path: str = "conus2_transient_solid.yaml",
 ) -> str:
     """
     Create a parflow directory populated with files needed to run parflow.
