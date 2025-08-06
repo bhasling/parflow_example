@@ -9,16 +9,17 @@ import hf_hydrodata as hf
 import subsettools as st
 import datetime
 
+
 def create_model(
     runname: str,
     options: dict,
     directory_path: str,
-    template_path:str="../src/conus2_transient_solid.yaml",
-)->str:
+    template_path: str = "../src/conus2_transient_solid.yaml",
+) -> str:
     """
-    Create a parflow model
+    Create a parflow directory populated with files needed to run parflow.
     Returns:
-        the path to the runscript of the model
+        the path to the yaml runscript of the parflow model
     """
     runscript_path = create_runscript(runname, options, directory_path, template_path)
     create_topology(runscript_path, options)
@@ -27,6 +28,7 @@ def create_model(
 
     return runscript_path
 
+
 def create_runscript(
     runname: str,
     options: dict,
@@ -34,7 +36,7 @@ def create_runscript(
     template_path="../src/conus2_transient_solid.yaml",
 ):
     """
-        Create a parflow model from the template into the directory path.
+        Create a parflow model using the template.
     Returns:
         the path to the runscript of the model
     """
@@ -46,7 +48,7 @@ def create_runscript(
     parflow.tools.settings.set_working_directory(directory_path)
     runscript_path = os.path.abspath(f"{directory_path}/{runname}.yaml")
 
-    # Create Parfow run object
+    # Create Parfow runscript_path using the template if it does not exist yet
     if not os.path.exists(runscript_path):
         print()
         print(f"Create new runscript '{runscript_path}'")
@@ -56,10 +58,16 @@ def create_runscript(
 
     return runscript_path
 
-def create_topology(runscript_path:str, options:dict):
+
+def create_topology(runscript_path: str, options: dict):
+    """
+    Create the topology files and add the references to the model and runscript.yaml file
+    """
     directory_path = os.path.dirname(runscript_path)
     model = parflow.Run.from_definition(runscript_path)
-    grid, ij_bounds, latlon_bounds, start_time, end_time  = get_time_space(options)
+    grid, ij_bounds, latlon_bounds, start_time, end_time = get_time_space_options(
+        options
+    )
 
     p = int(options.get("p", "1"))
     q = int(options.get("q", "1"))
@@ -91,8 +99,6 @@ def create_topology(runscript_path:str, options:dict):
         mask=mask, grid=grid, write_dir=directory_path
     )
 
-    start_time = options.get("start_time", "2001-01-01")
-    end_time = options.get("end_time", "2001-01-02")
     start_time_dt = datetime.datetime.strptime(start_time, "%Y-%m-%d")
     end_time_dt = datetime.datetime.strptime(end_time, "%Y-%m-%d")
     days_between = (end_time_dt - start_time_dt).days
@@ -102,11 +108,16 @@ def create_topology(runscript_path:str, options:dict):
     model.write(file_format="yaml")
 
 
-def create_forcing(runscript_path:str, options:dict, runname:str):
+def create_forcing(runscript_path: str, options: dict, runname: str):
+    """
+    Create the static input and forcing files and add the references to the model and runscript.yaml file
+    """
     model = parflow.Run.from_definition(runscript_path)
     directory_path = os.path.dirname(runscript_path)
 
-    grid, ij_bounds, latlon_bounds, start_time, end_time  = get_time_space(options)
+    grid, ij_bounds, latlon_bounds, start_time, end_time = get_time_space_options(
+        options
+    )
 
     var_ds = "conus2_domain"
     static_paths = st.subset_static(ij_bounds, dataset=var_ds, write_dir=directory_path)
@@ -148,7 +159,10 @@ def create_forcing(runscript_path:str, options:dict, runname:str):
     model.write(file_format="yaml")
 
 
-def create_dist_files(runscript_path:str, options:dict):
+def create_dist_files(runscript_path: str, options: dict):
+    """
+    Create the parflow .dist files for the generated pfb files in the parflow directory.
+    """
     p = int(options.get("p", "1"))
     q = int(options.get("q", "1"))
 
@@ -159,7 +173,14 @@ def create_dist_files(runscript_path:str, options:dict):
         dist_clim_forcing=True,
     )
 
-def get_time_space(options):
+
+def get_time_space_options(options):
+    """
+    Get the time and space options from the input options.
+    Returns:
+        (grid, ij_bounds, latlon_bounds, start_time, end_time)
+    """
+
     grid_bounds = options.get("grid_bounds", None)
     latlon_bounds = options.get("latlon_bounds", None)
     grid = options.get("grid", "conus2")
