@@ -2,6 +2,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
+tests/pf_util
 
 # C extensions
 *.so
