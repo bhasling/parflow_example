@@ -1,5 +1,5 @@
 """
-Utility to configure a parflow model and run parflow
+Utility to configure a parflow directory with files and runscript to be used to run parflow.
 """
 
 import os
@@ -34,7 +34,7 @@ def create_runscript(
     runname: str,
     options: dict,
     directory_path: str,
-    template_path="../src/conus2_transient_solid.yaml",
+    template_path="conus2_transient_solid.yaml",
 ):
     """
         Create a parflow model using the template.
@@ -45,7 +45,9 @@ def create_runscript(
     directory_path = os.path.abspath(directory_path)
 
     os.makedirs(directory_path, exist_ok=True)
-    template_path = os.path.abspath(template_path)
+    template_dir = os.path.dirname(os.path.abspath(__file__))
+    if not template_path.startswith("/"):
+        template_path = os.path.join(template_dir, template_path)
     parflow.tools.settings.set_working_directory(directory_path)
     runscript_path = os.path.abspath(f"{directory_path}/{runname}.yaml")
 
