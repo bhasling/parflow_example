@@ -22,8 +22,9 @@ def create_model(
         the path to the yaml runscript of the parflow model
     """
     runscript_path = create_runscript(runname, options, directory_path, template_path)
+
     create_topology(runscript_path, options)
-    create_forcing(runscript_path, options, runname)
+    create_static_and_forcing(runscript_path, options, runname)
     create_dist_files(runscript_path, options)
 
     return runscript_path
@@ -108,7 +109,7 @@ def create_topology(runscript_path: str, options: dict):
     model.write(file_format="yaml")
 
 
-def create_forcing(runscript_path: str, options: dict, runname: str):
+def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
     """
     Create the static input and forcing files and add the references to the model and runscript.yaml file
     """
