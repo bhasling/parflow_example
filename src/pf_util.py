@@ -1,0 +1,173 @@
+"""
+Utility to configure a parflow model and run parflow
+"""
+
+import os
+import shutil
+import parflow
+import hf_hydrodata as hf
+import subsettools as st
+import datetime
+
+def create_model(
+    runname: str,
+    options: dict,
+    directory_path: str,
+    template_path:str="../src/conus2_transient_solid.yaml",
+)->str:
+    """
+    Create a parflow model
+    Returns:
+        the path to the runscript of the model
+    """
+    runscript_path = create_runscript(runname, options, directory_path, template_path)
+    create_topology(runscript_path, options)
+    create_forcing(runscript_path, options, runname)
+    create_dist_files(runscript_path, options)
+
+    return runscript_path
+
+def create_runscript(
+    runname: str,
+    options: dict,
+    directory_path: str,
+    template_path="../src/conus2_transient_solid.yaml",
+):
+    """
+        Create a parflow model from the template into the directory path.
+    Returns:
+        the path to the runscript of the model
+    """
+
+    directory_path = os.path.abspath(directory_path)
+
+    os.makedirs(directory_path, exist_ok=True)
+    template_path = os.path.abspath(template_path)
+    parflow.tools.settings.set_working_directory(directory_path)
+    runscript_path = os.path.abspath(f"{directory_path}/{runname}.yaml")
+
+    # Create Parfow run object
+    if not os.path.exists(runscript_path):
+        print()
+        print(f"Create new runscript '{runscript_path}'")
+        shutil.copy(template_path, runscript_path)
+        model = parflow.Run.from_definition(runscript_path)
+        model.write(file_format="yaml")
+
+    return runscript_path
+
+def create_topology(runscript_path:str, options:dict):
+    directory_path = os.path.dirname(runscript_path)
+    model = parflow.Run.from_definition(runscript_path)
+    grid, ij_bounds, latlon_bounds, start_time, end_time  = get_time_space(options)
+
+    p = int(options.get("p", "1"))
+    q = int(options.get("q", "1"))
+    r = int(options.get("r", "1"))
+    model.Process.Topology.P = p
+    model.Process.Topology.Q = q
+    model.Process.Topology.R = r
+    model.FileVersion = 4
+
+    ij_bounds, mask = st.define_latlon_domain(latlon_bounds, grid)
+
+    model.ComputationalGrid.Lower.X = ij_bounds[0]
+    model.ComputationalGrid.Lower.Y = ij_bounds[1]
+    model.ComputationalGrid.Lower.Z = 0.0
+
+    # Define the size of each grid cell. The length units are the same as those on hydraulic conductivity, here that is meters.
+    model.ComputationalGrid.DX = 1000.0
+    model.ComputationalGrid.DY = 1000.0
+    model.ComputationalGrid.DZ = 200.0
+
+    # Define the number of grid blocks in the domain.
+    model.ComputationalGrid.NX = ij_bounds[2] - ij_bounds[0]
+    model.ComputationalGrid.NY = ij_bounds[3] - ij_bounds[1]
+    if grid == "conus1":
+        model.ComputationalGrid.NZ = 5
+    elif grid == "conus2":
+        model.ComputationalGrid.NZ = 10
+    mask_solid_paths = st.write_mask_solid(
+        mask=mask, grid=grid, write_dir=directory_path
+    )
+
+    start_time = options.get("start_time", "2001-01-01")
+    end_time = options.get("end_time", "2001-01-02")
+    start_time_dt = datetime.datetime.strptime(start_time, "%Y-%m-%d")
+    end_time_dt = datetime.datetime.strptime(end_time, "%Y-%m-%d")
+    days_between = (end_time_dt - start_time_dt).days
+    print("DAYS BETWEEN", days_between)
+    model.TimingInfo.StopTime = 24 * days_between
+
+    model.write(file_format="yaml")
+
+
+def create_forcing(runscript_path:str, options:dict, runname:str):
+    model = parflow.Run.from_definition(runscript_path)
+    directory_path = os.path.dirname(runscript_path)
+
+    grid, ij_bounds, latlon_bounds, start_time, end_time  = get_time_space(options)
+
+    var_ds = "conus2_domain"
+    static_paths = st.subset_static(ij_bounds, dataset=var_ds, write_dir=directory_path)
+    clm_paths = st.config_clm(
+        ij_bounds,
+        start=start_time,
+        end=end_time,
+        dataset=var_ds,
+        write_dir=directory_path,
+    )
+
+    forcing_ds = "CW3E"
+    st.subset_forcing(
+        ij_bounds,
+        grid=grid,
+        start=start_time,
+        end=end_time,
+        dataset=forcing_ds,
+        write_dir=directory_path,
+    )
+
+    st.edit_runscript_for_subset(
+        ij_bounds,
+        runscript_path=runscript_path,
+        runname=runname,
+        forcing_dir=directory_path,
+    )
+
+    init_press_path = os.path.basename(static_paths["ss_pressure_head"])
+    depth_to_bedrock_path = os.path.basename(static_paths["pf_flowbarrier"])
+
+    st.change_filename_values(
+        runscript_path=runscript_path,
+        init_press=init_press_path,
+        depth_to_bedrock=depth_to_bedrock_path,
+    )
+    model = parflow.Run.from_definition(runscript_path)
+    model.Solver.CLM.MetFileName = "CW3E"
+    model.write(file_format="yaml")
+
+
+def create_dist_files(runscript_path:str, options:dict):
+    p = int(options.get("p", "1"))
+    q = int(options.get("q", "1"))
+
+    st.dist_run(
+        topo_p=p,
+        topo_q=p,
+        runscript_path=runscript_path,
+        dist_clim_forcing=True,
+    )
+
+def get_time_space(options):
+    grid_bounds = options.get("grid_bounds", None)
+    latlon_bounds = options.get("latlon_bounds", None)
+    grid = options.get("grid", "conus2")
+    start_time = options.get("start_time", "2001-01-01")
+    end_time = options.get("end_time", "2001-01-02")
+    if grid_bounds:
+        lat_min, lon_min = hf.to_latlon(grid, grid_bounds[0], grid_bounds[1])
+        lat_max, lon_max = hf.to_latlon(grid, grid_bounds[2] - 1, grid_bounds[3] - 1)
+        latlon_bounds = [[lat_min, lon_min], [lat_max, lon_max]]
+    ij_bounds, mask = st.define_latlon_domain(latlon_bounds, grid)
+    return (grid, ij_bounds, latlon_bounds, start_time, end_time)
