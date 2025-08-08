@@ -53,8 +53,6 @@ def create_runscript(
 
     # Create Parfow runscript_path using the template if it does not exist yet
     if not os.path.exists(runscript_path):
-        print()
-        print(f"Create new runscript '{runscript_path}'")
         shutil.copy(template_path, runscript_path)
         model = parflow.Run.from_definition(runscript_path)
         model.write(file_format="yaml")
@@ -68,7 +66,7 @@ def create_topology(runscript_path: str, options: dict):
     """
     directory_path = os.path.dirname(runscript_path)
     model = parflow.Run.from_definition(runscript_path)
-    grid, ij_bounds, latlon_bounds, start_time, end_time = get_time_space_options(
+    mask, grid, ij_bounds, latlon_bounds, start_time, end_time = get_time_space_options(
         options
     )
 
@@ -98,14 +96,10 @@ def create_topology(runscript_path: str, options: dict):
         model.ComputationalGrid.NZ = 5
     elif grid == "conus2":
         model.ComputationalGrid.NZ = 10
-    mask_solid_paths = st.write_mask_solid(
-        mask=mask, grid=grid, write_dir=directory_path
-    )
 
     start_time_dt = datetime.datetime.strptime(start_time, "%Y-%m-%d")
     end_time_dt = datetime.datetime.strptime(end_time, "%Y-%m-%d")
     days_between = (end_time_dt - start_time_dt).days
-    print("DAYS BETWEEN", days_between)
     model.TimingInfo.StopTime = 24 * int(days_between)
 
     model.write(file_format="yaml")
@@ -118,9 +112,15 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
     model = parflow.Run.from_definition(runscript_path)
     directory_path = os.path.dirname(runscript_path)
 
-    grid, ij_bounds, latlon_bounds, start_time, end_time = get_time_space_options(
+    mask, grid, ij_bounds, latlon_bounds, start_time, end_time = get_time_space_options(
         options
     )
+
+    if options.get("hucs", None):
+        # Only do this if a HUC is specified
+        mask_solid_paths = st.write_mask_solid(
+            mask=mask, grid=grid, write_dir=directory_path
+        )
 
     var_ds = "conus2_domain"
     static_paths = st.subset_static(ij_bounds, dataset=var_ds, write_dir=directory_path)
@@ -132,6 +132,8 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
         write_dir=directory_path,
     )
 
+    forcing_dir_path = os.path.abspath(os.path.join(directory_path, "..", "forcing"))
+    os.makedirs(forcing_dir_path, exist_ok=True)
     forcing_ds = "CW3E"
     st.subset_forcing(
         ij_bounds,
@@ -139,14 +141,14 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
         start=start_time,
         end=end_time,
         dataset=forcing_ds,
-        write_dir=directory_path,
+        write_dir=forcing_dir_path,
     )
 
     st.edit_runscript_for_subset(
         ij_bounds,
         runscript_path=runscript_path,
         runname=runname,
-        forcing_dir=directory_path,
+        forcing_dir=forcing_dir_path,
     )
 
     init_press_path = os.path.basename(static_paths["ss_pressure_head"])
@@ -178,6 +180,7 @@ def create_dist_files(runscript_path: str, options: dict):
     )
     model = parflow.Run.from_definition(runscript_path)
     model.ComputationalGrid.NZ = 10
+    model.TimingInfo.StopTime = 10
     model.write(file_format="yaml")
 
 def get_time_space_options(options):
@@ -189,12 +192,26 @@ def get_time_space_options(options):
 
     grid_bounds = options.get("grid_bounds", None)
     latlon_bounds = options.get("latlon_bounds", None)
+    hucs = options.get("hucs", None)
     grid = options.get("grid", "conus2")
     start_time = options.get("start_time", "2001-01-01")
     end_time = options.get("end_time", "2001-01-02")
-    if grid_bounds:
+    if hucs:
+        ij_bounds, mask = st.define_huc_domain(hucs=hucs, grid=grid)
+        lat_min, lon_min = hf.to_latlon(grid, ij_bounds[0], ij_bounds[1])
+        lat_max, lon_max = hf.to_latlon(grid, ij_bounds[2] - 1, ij_bounds[3] - 1)
+        latlon_bounds = [[lat_min, lon_min], [lat_max, lon_max]]
+    elif grid_bounds:
         lat_min, lon_min = hf.to_latlon(grid, grid_bounds[0], grid_bounds[1])
         lat_max, lon_max = hf.to_latlon(grid, grid_bounds[2] - 1, grid_bounds[3] - 1)
         latlon_bounds = [[lat_min, lon_min], [lat_max, lon_max]]
-    ij_bounds, mask = st.define_latlon_domain(latlon_bounds, grid)
-    return (grid, ij_bounds, latlon_bounds, start_time, end_time)
+        ij_bounds, mask = st.define_latlon_domain(latlon_bounds, grid)
+    elif latlon_bounds:
+        if len(latlon_bounds) != 2:
+            raise ValueError("The latlon_bounds must be an array of 2 lat/lon pairs")
+        elif len(latlon_bounds[0]) != 2:
+            raise ValueError("The latlon_bounds must be an array of 2 lat/lon pairs")        
+        ij_bounds, mask = st.define_latlon_domain(latlon_bounds, grid)
+    else:
+        raise ValueError("Must specify in options hucs, grid_bounds, or latlon_bounds")
+    return (mask, grid, ij_bounds, latlon_bounds, start_time, end_time)
