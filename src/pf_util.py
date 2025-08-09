@@ -1,13 +1,13 @@
 """
 Utility to configure a parflow directory with files and runscript to be used to run parflow.
 """
-
+#pylint: disable = C0301,R0914,W0632
 import os
 import shutil
+import datetime
 import parflow
 import hf_hydrodata as hf
 import subsettools as st
-import datetime
 
 
 def create_model(
@@ -21,7 +21,7 @@ def create_model(
     Returns:
         the path to the yaml runscript of the parflow model
     """
-    runscript_path = create_runscript(runname, options, directory_path, template_path)
+    runscript_path = create_runscript(runname, directory_path, template_path)
 
     create_topology(runscript_path, options)
     create_static_and_forcing(runscript_path, options, runname)
@@ -32,14 +32,13 @@ def create_model(
 
 def create_runscript(
     runname: str,
-    options: dict,
     directory_path: str,
     template_path="conus2_transient_solid.yaml",
 ):
     """
         Create a parflow model using the template.
-    Returns:
-        the path to the runscript of the model
+        Returns:
+            the path to the runscript of the model
     """
 
     directory_path = os.path.abspath(directory_path)
@@ -64,9 +63,8 @@ def create_topology(runscript_path: str, options: dict):
     """
     Create the topology files and add the references to the model and runscript.yaml file
     """
-    directory_path = os.path.dirname(runscript_path)
     model = parflow.Run.from_definition(runscript_path)
-    mask, grid, ij_bounds, latlon_bounds, start_time, end_time = get_time_space_options(
+    _, grid, ij_bounds, latlon_bounds, _, _ = get_time_space_options(
         options
     )
 
@@ -78,7 +76,7 @@ def create_topology(runscript_path: str, options: dict):
     model.Process.Topology.R = r
     model.FileVersion = 4
 
-    ij_bounds, mask = st.define_latlon_domain(latlon_bounds, grid)
+    ij_bounds, _ = st.define_latlon_domain(latlon_bounds, grid)
 
     model.ComputationalGrid.Lower.X = ij_bounds[0]
     model.ComputationalGrid.Lower.Y = ij_bounds[1]
@@ -97,11 +95,6 @@ def create_topology(runscript_path: str, options: dict):
     elif grid == "conus2":
         model.ComputationalGrid.NZ = 10
 
-    start_time_dt = datetime.datetime.strptime(start_time, "%Y-%m-%d")
-    end_time_dt = datetime.datetime.strptime(end_time, "%Y-%m-%d")
-    days_between = (end_time_dt - start_time_dt).days
-    model.TimingInfo.StopTime = 24 * int(days_between)
-
     model.write(file_format="yaml")
 
 
@@ -112,19 +105,17 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
     model = parflow.Run.from_definition(runscript_path)
     directory_path = os.path.dirname(runscript_path)
 
-    mask, grid, ij_bounds, latlon_bounds, start_time, end_time = get_time_space_options(
+    mask, grid, ij_bounds, _, start_time, end_time = get_time_space_options(
         options
     )
 
-    if options.get("hucs", None):
-        # Only do this if a HUC is specified
-        mask_solid_paths = st.write_mask_solid(
-            mask=mask, grid=grid, write_dir=directory_path
-        )
+    st.write_mask_solid(
+        mask=mask, grid=grid, write_dir=directory_path
+    )
 
     var_ds = "conus2_domain"
     static_paths = st.subset_static(ij_bounds, dataset=var_ds, write_dir=directory_path)
-    clm_paths = st.config_clm(
+    st.config_clm(
         ij_bounds,
         start=start_time,
         end=end_time,
@@ -132,7 +123,7 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
         write_dir=directory_path,
     )
 
-    forcing_dir_path = os.path.abspath(os.path.join(directory_path, "..", "forcing"))
+    forcing_dir_path = directory_path
     os.makedirs(forcing_dir_path, exist_ok=True)
     forcing_ds = "CW3E"
     st.subset_forcing(
@@ -171,17 +162,31 @@ def create_dist_files(runscript_path: str, options: dict):
     p = int(options.get("p", "1"))
     q = int(options.get("q", "1"))
 
-
     st.dist_run(
         topo_p=p,
-        topo_q=p,
+        topo_q=q,
         runscript_path=runscript_path,
         dist_clim_forcing=True,
     )
     model = parflow.Run.from_definition(runscript_path)
+
+    # Set the timesteps to use in the parflow run
+    time_steps = options.get("time_steps", None)
+    if time_steps is None:
+        # If time_steps is not set in the options use the hours between start and end time
+        _, _, _, _, start_time, end_time = get_time_space_options(options)
+        start_time_dt = datetime.datetime.strptime(start_time, "%Y-%m-%d")
+        end_time_dt = datetime.datetime.strptime(end_time, "%Y-%m-%d")
+        days_between = (end_time_dt - start_time_dt).days
+        model.TimingInfo.StopTime = 24 * int(days_between)
+    else:
+        # If time_steps is set in the options then use that number of steps
+        model.TimingInfo.StopTime = int(time_steps)
+
+    # Reset the NZ that can be incorrectly set by st.dist_run
     model.ComputationalGrid.NZ = 10
-    model.TimingInfo.StopTime = 10
     model.write(file_format="yaml")
+
 
 def get_time_space_options(options):
     """
@@ -209,8 +214,8 @@ def get_time_space_options(options):
     elif latlon_bounds:
         if len(latlon_bounds) != 2:
             raise ValueError("The latlon_bounds must be an array of 2 lat/lon pairs")
-        elif len(latlon_bounds[0]) != 2:
-            raise ValueError("The latlon_bounds must be an array of 2 lat/lon pairs")        
+        if len(latlon_bounds[0]) != 2:
+            raise ValueError("The latlon_bounds must be an array of 2 lat/lon pairs")
         ij_bounds, mask = st.define_latlon_domain(latlon_bounds, grid)
     else:
         raise ValueError("Must specify in options hucs, grid_bounds, or latlon_bounds")
