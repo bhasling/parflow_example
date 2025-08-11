@@ -145,6 +145,7 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
     forcing_day = options.get("forcing_day", None)
     forcing_ds = "CW3E"
     if forcing_day:
+        # use fixed values for all forcing hour inputs
         precip = options.get("precip", None)
         start_time_dt = datetime.datetime.strptime(start_time, "%Y-%m-%d")
         end_time_dt = datetime.datetime.strptime(end_time, "%Y-%m-%d")
@@ -159,6 +160,7 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
             "north_windspeed",
         ]
         for variable in forcing_variables:
+            # Get the forcing data for all variables
             options = {
                 "dataset": forcing_ds,
                 "variable": variable,
@@ -182,15 +184,18 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
                     data[:, :, :] = float(precip)
             day_data = np.zeros((24, data.shape[1], data.shape[2]))
             for i in range(0, 24):
+                # Set the data to be the same for all 24 hours in the PFB file
                 day_data[i, :, :] = data[0, :, :]
             dt = start_time_dt
             day = 1
             while dt < end_time_dt:
+                # Create hourly pfb files for each day in the parflow run range to all be the same
                 forcing_file_path = f"{forcing_dir_path}/{forcing_ds}.{dataset_var}.{day:06d}_to_{day+23:06d}.pfb"
                 parflow.write_pfb(forcing_file_path, day_data)
                 dt = dt + datetime.timedelta(days=1)
                 day = day + 24
     else:
+        # Get the forcing data from the CW3E dataset for the days in the parflow run range
         st.subset_forcing(
             ij_bounds,
             grid=grid,
@@ -200,6 +205,7 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
             write_dir=forcing_dir_path,
         )
 
+    # Update the runscript yaml file with the forcing_dir_path
     st.edit_runscript_for_subset(
         ij_bounds,
         runscript_path=runscript_path,
@@ -207,6 +213,7 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
         forcing_dir=forcing_dir_path,
     )
 
+    # Update the file names of the generated parflow static files
     init_press_path = os.path.basename(static_paths["ss_pressure_head"])
     depth_to_bedrock_path = os.path.basename(static_paths["pf_flowbarrier"])
 
@@ -215,6 +222,8 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
         init_press=init_press_path,
         depth_to_bedrock=depth_to_bedrock_path,
     )
+
+    # Set the forcing file dataset name in the runscript yaml file
     model = parflow.Run.from_definition(runscript_path)
     model.Solver.CLM.MetFileName = "CW3E"
     model.write(file_format="yaml")
