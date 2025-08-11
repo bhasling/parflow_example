@@ -1,11 +1,13 @@
 """
 Utility to configure a parflow directory with files and runscript to be used to run parflow.
 """
-#pylint: disable = C0301,R0914,W0632
+
+# pylint: disable = C0301,R0914,W0632
 import os
 import shutil
 import datetime
 import parflow
+import numpy as np
 import hf_hydrodata as hf
 import subsettools as st
 
@@ -18,6 +20,27 @@ def create_model(
 ) -> str:
     """
     Create a parflow directory populated with files needed to run parflow.
+    Parameters:
+        runname:    The name used the generated yaml file for the generated parflow files.
+        options:    dict containing options used to generate the files for parflow inputs.
+        directory_path: the path name to the directory where the parflow files are created.
+
+    The options dict supports the keys:
+        p:          the x size of the topology for pfb files (defaults to 1).
+        q:          the y size of the topology for pfb files (defaults to 1).
+        r:          the z size of the topology for pfb files (defaults to 1).
+        start_time: the start time of the run as string YYYY-mm-dd
+        end_time:   the end time of the run as string YYYY-mm-dd
+        time_steps: the number of timesteps to run parflow (defaults to # yours from start-stop).
+        hucs:       an array of HUC id to subset inputs and outputs (optional).
+        grid_bounds:the conus2 points to subset (min_x, min_y, max_x, max_y) (optional).
+        latlon_bounds: the latlon bounds to subset ((min,lat, min_lon),(max_lat, max_lon) (optional).
+        forcing_day:Use fixed forcing data for every input hour from this day (YYY-mm-dd).
+        precip:     Use this fixed precipitation value for every input hour (optional).
+        grid:       The grid size (only conus2 is supported) (defaults to conus2).
+
+    Only one of hucs, grid_bounds or latlon_bounds may be provided.
+
     Returns:
         the path to the yaml runscript of the parflow model
     """
@@ -36,9 +59,9 @@ def create_runscript(
     template_path="conus2_transient_solid.yaml",
 ):
     """
-        Create a parflow model using the template.
-        Returns:
-            the path to the runscript of the model
+    Create a parflow model using the template.
+    Returns:
+        the path to the runscript of the model
     """
 
     directory_path = os.path.abspath(directory_path)
@@ -64,9 +87,7 @@ def create_topology(runscript_path: str, options: dict):
     Create the topology files and add the references to the model and runscript.yaml file
     """
     model = parflow.Run.from_definition(runscript_path)
-    _, grid, ij_bounds, latlon_bounds, _, _ = get_time_space_options(
-        options
-    )
+    _, grid, ij_bounds, latlon_bounds, _, _ = get_time_space_options(options)
 
     p = int(options.get("p", "1"))
     q = int(options.get("q", "1"))
@@ -105,13 +126,9 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
     model = parflow.Run.from_definition(runscript_path)
     directory_path = os.path.dirname(runscript_path)
 
-    mask, grid, ij_bounds, _, start_time, end_time = get_time_space_options(
-        options
-    )
+    mask, grid, ij_bounds, _, start_time, end_time = get_time_space_options(options)
 
-    st.write_mask_solid(
-        mask=mask, grid=grid, write_dir=directory_path
-    )
+    st.write_mask_solid(mask=mask, grid=grid, write_dir=directory_path)
 
     var_ds = "conus2_domain"
     static_paths = st.subset_static(ij_bounds, dataset=var_ds, write_dir=directory_path)
@@ -125,15 +142,63 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
 
     forcing_dir_path = directory_path
     os.makedirs(forcing_dir_path, exist_ok=True)
+    forcing_day = options.get("forcing_day", None)
     forcing_ds = "CW3E"
-    st.subset_forcing(
-        ij_bounds,
-        grid=grid,
-        start=start_time,
-        end=end_time,
-        dataset=forcing_ds,
-        write_dir=forcing_dir_path,
-    )
+    if forcing_day:
+        precip = options.get("precip", None)
+        start_time_dt = datetime.datetime.strptime(start_time, "%Y-%m-%d")
+        end_time_dt = datetime.datetime.strptime(end_time, "%Y-%m-%d")
+        forcing_variables = [
+            "downward_shortwave",
+            "precipitation",
+            "downward_longwave",
+            "specific_humidity",
+            "air_temp",
+            "atmospheric_pressure",
+            "east_windspeed",
+            "north_windspeed",
+        ]
+        for variable in forcing_variables:
+            options = {
+                "dataset": forcing_ds,
+                "variable": variable,
+                "grid_bounds": list(ij_bounds),
+                "temporal_resolution": "daily",
+                "start_time": forcing_day,
+                "aggregation": "sum" if variable == "precipitation" else "mean",
+                "dataset_verson": "1.0",
+            }
+            metadata = hf.get_catalog_entry(options)
+            dataset_var = (
+                "Press"
+                if variable == "atmospheric_pressure"
+                else "Temp" if variable == "air_temp" else metadata.get("dataset_var")
+            )
+
+            data = hf.get_gridded_data(options)
+            if variable == "precipitation":
+                data = data / 24
+                if precip:
+                    data[:, :, :] = float(precip)
+            day_data = np.zeros((24, data.shape[1], data.shape[2]))
+            for i in range(0, 24):
+                day_data[i, :, :] = data[0, :, :]
+            dt = start_time_dt
+            day = 1
+            while dt < end_time_dt:
+                forcing_file_path = f"{forcing_dir_path}/{forcing_ds}.{dataset_var}.{day:06d}_to_{day+23:06d}.pfb"
+                parflow.write_pfb(forcing_file_path, day_data)
+                dt = dt + datetime.timedelta(days=1)
+                day = day + 24
+    else:
+        st.subset_forcing(
+            ij_bounds,
+            grid=grid,
+            start=start_time,
+            end=end_time,
+            dataset=forcing_ds,
+            write_dir=forcing_dir_path,
+        )
 
     st.edit_runscript_for_subset(
         ij_bounds,

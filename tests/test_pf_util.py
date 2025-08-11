@@ -75,7 +75,6 @@ def test_box():
             target_x + target_radius,
             target_y + target_radius,
         ]
-        print("GRID BOUNDS", grid_bounds)
         options = {
             "grid_bounds": grid_bounds,
             "grid": "conus2",
@@ -100,6 +99,58 @@ def test_box():
 
         # Verify the pressure start and end values for center cell of the period run
         verify_pressure(runscript_path, 0.003443, 0.003190)
+
+    except Exception as e:
+        raise e
+
+
+def test_fixed_forcing_box():
+    """
+    Test generating a parflow directory and execute model and assert start/end pressure values for a box
+    Use a box with radius 5 around the same target point that is the center of HUC 02080203
+    This should get the same answer as the HUC test, but with a smaller parflow domain.
+    """
+
+    try:
+        runname = "box_fixed_forcing"
+        directory_path = f"./{runname}"
+
+        start_time = "2005-10-01"
+        end_time = "2005-10-02"
+        target_x = 3754
+        target_y = 1588
+        target_radius = 5
+        grid_bounds = [
+            target_x - target_radius,
+            target_y - target_radius,
+            target_x + target_radius,
+            target_y + target_radius,
+        ]
+        options = {
+            "grid_bounds": grid_bounds,
+            "grid": "conus2",
+            "start_time": start_time,
+            "end_time": end_time,
+            "time_steps": 10,
+            "forcing_day": start_time,
+        }
+
+        # Create the parflow model and generated input files
+        runscript_path = pf_util.create_model(runname, options, directory_path)
+        model = parflow.Run.from_definition(runscript_path)
+        model.write(file_format="yaml")
+
+        # Check if the model has been initialized with default settings
+        assert hasattr(model, "FileVersion")
+        assert model.FileVersion == 4
+        assert model.ComputationalGrid.DX == 1000.0
+        model.write(file_format="yaml")
+
+        # Run the parflow model
+        model.run()
+
+        # Verify the pressure start and end values for center cell of the period run
+        verify_pressure(runscript_path, 0.003443, 0.003247)
 
     except Exception as e:
         raise e
