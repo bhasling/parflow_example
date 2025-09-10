@@ -33,7 +33,7 @@ def test_huc8():
         }
 
         # Create the parflow model and generated input files
-        runscript_path = pf_util.create_model(runname, options, directory_path)
+        runscript_path = pf_util.create_project_dir(directory_path, options)
         model = parflow.Run.from_definition(runscript_path)
         model.write(file_format="yaml")
 
@@ -84,7 +84,7 @@ def test_box():
         }
 
         # Create the parflow model and generated input files
-        runscript_path = pf_util.create_model(runname, options, directory_path)
+        runscript_path = pf_util.create_project_dir(directory_path, options)
         model = parflow.Run.from_definition(runscript_path)
         model.write(file_format="yaml")
 
@@ -133,10 +133,11 @@ def test_fixed_forcing_box():
             "end_time": end_time,
             "time_steps": 10,
             "forcing_day": start_time,
+            "dataset_version": "1.0"
         }
 
         # Create the parflow model and generated input files
-        runscript_path = pf_util.create_model(runname, options, directory_path)
+        runscript_path = pf_util.create_project_dir(directory_path, options)
         model = parflow.Run.from_definition(runscript_path)
         model.write(file_format="yaml")
 
@@ -169,7 +170,7 @@ def verify_pressure(runscript_path, start_pressure, end_pressure):
     domain_x = model.ComputationalGrid.Lower.X
     domain_y = model.ComputationalGrid.Lower.Y
     print(f"DOMAIN XY = ({domain_x}, {domain_y})")
-    print("Num Time Steps", stop_time)
+    print("Num Time Steps", stop_time) 
     initial_press_np = parflow.read_pfb(f"{directory_path}/ss_pressure_head.pfb")
     print("INI PRESS_SHAPE", initial_press_np.shape)
     x = int(nx / 2)

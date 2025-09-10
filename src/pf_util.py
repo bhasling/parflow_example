@@ -12,18 +12,16 @@ import hf_hydrodata as hf
 import subsettools as st
 
 
-def create_model(
-    runname: str,
-    options: dict,
+def create_project_dir(
     directory_path: str,
+    options: dict,
     template_path: str = "conus2_transient_solid.yaml",
 ) -> str:
     """
     Create a parflow directory populated with files needed to run parflow.
     Parameters:
-        runname:    The name used the generated yaml file for the generated parflow files.
-        options:    dict containing options used to generate the files for parflow inputs.
         directory_path: the path name to the directory where the parflow files are created.
+        options:        dict containing options used to generate the files for parflow inputs.
 
     The options dict supports the keys:
         p:          the x size of the topology for pfb files (defaults to 1).
@@ -44,6 +42,7 @@ def create_model(
     Returns:
         the path to the yaml runscript of the parflow model
     """
+    runname = os.path.basename(directory_path)
     runscript_path = create_runscript(runname, directory_path, template_path)
 
     create_topology(runscript_path, options)

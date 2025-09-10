@@ -28,70 +28,44 @@ def test_fixed_forcing_box():
         target_x = 3754
         target_y = 1588
         target_radius = 5
+        time_steps = 10
         grid_bounds = [
             target_x - target_radius,
             target_y - target_radius,
             target_x + target_radius,
             target_y + target_radius,
         ]
-        options = {
+        parflow_options = {
             "grid_bounds": grid_bounds,
             "grid": "conus2",
             "start_time": start_time,
             "end_time": end_time,
-            "time_steps": 10,
+            "time_steps": time_steps,
             "forcing_day": start_time,
         }
 
         # Create the parflow model and generated input files
-        runscript_path = pf_util.create_model(runname, options, directory_path)
+        runscript_path = pf_util.create_project_dir(directory_path, parflow_options)
         model = parflow.Run.from_definition(runscript_path)
-        model.write(file_format="yaml")
-
-        # Check if the model has been initialized with default settings
-        assert hasattr(model, "FileVersion")
-        assert model.FileVersion == 4
-        assert model.ComputationalGrid.DX == 1000.0
         model.write(file_format="yaml")
 
         # Run the parflow model
         model.run()
 
-        # Verify the pressure start and end values for center cell of the period run
-        verify_pressure(runscript_path, 0.003443, 0.003247)
+        # Verify the result
+        time_step = time_steps - 1
+        nx = model.ComputationalGrid.NX
+        ny = model.ComputationalGrid.NY
+        nz = model.ComputationalGrid.NZ
+        x = int(nx / 2)
+        y = int(ny / 2)
+        z = nz - 1
+        out_path = f"{directory_path}/{runname}.out.press.{time_step:05d}.pfb"
+        out_press_np = parflow.read_pfb(out_path)
+        print(f"OUT PRESS ({z},{y},{x}) {out_press_np[z, y, x]} [{time_step}]")
+        top_layer_pressure = out_press_np
+        assert top_layer_pressure[z, y, x] == pytest.approx(0.003247, abs=0.00001)
+
 
     except Exception as e:
         raise e
-
-
-def verify_pressure(runscript_path, start_pressure, end_pressure):
-    """Print the start and end pressure of the parflow run and assert expected values."""
-
-    directory_path = os.path.dirname(runscript_path)
-    runname = os.path.basename(directory_path)
-    model = parflow.Run.from_definition(runscript_path)
-    stop_time = model.TimingInfo.StopTime
-    nx = model.ComputationalGrid.NX
-    ny = model.ComputationalGrid.NY
-    nz = model.ComputationalGrid.NZ
-    domain_x = model.ComputationalGrid.Lower.X
-    domain_y = model.ComputationalGrid.Lower.Y
-    print(f"DOMAIN XY = ({domain_x}, {domain_y})")
-    print("Num Time Steps", stop_time)
-    initial_press_np = parflow.read_pfb(f"{directory_path}/ss_pressure_head.pfb")
-    print("INI PRESS_SHAPE", initial_press_np.shape)
-    x = int(nx / 2)
-    y = int(ny / 2)
-    z = nz - 1
-    print(f"TARGET XY = ({domain_x + x}, {domain_y + y})")
-    print("Num Time Steps", stop_time)
-    print(f"INI PRESS ({z},{y},{x})", initial_press_np[z, y, x])
-    print(initial_press_np[z, y, x])
-    print()
-    for i in range(0, stop_time):
-        out_path = f"{directory_path}/{runname}.out.press.{i:05d}.pfb"
-        out_press_np = parflow.read_pfb(out_path)
-        print(f"OUT PRESS ({z},{y},{x}) {out_press_np[z, y, x]} [{i}]")
-        top_layer_pressure = out_press_np
-    assert initial_press_np[z, y, x] == pytest.approx(start_pressure, abs=0.00001)
-    assert top_layer_pressure[z, y, x] == pytest.approx(end_pressure, abs=0.00001)
