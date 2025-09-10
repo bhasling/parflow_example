@@ -168,7 +168,7 @@ def create_static_and_forcing(runscript_path: str, options: dict, runname: str):
                 "temporal_resolution": "daily",
                 "start_time": forcing_day,
                 "aggregation": "sum" if variable == "precipitation" else "mean",
-                "dataset_verson": "1.0",
+                "dataset_version": "1.0",
             }
             metadata = hf.get_catalog_entry(options)
             dataset_var = (
