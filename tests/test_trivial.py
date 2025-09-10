@@ -20,7 +20,7 @@ def test_fixed_forcing_box():
     """
 
     try:
-        runname = "box_fixed_forcing"
+        runname = "trival"
         directory_path = f"./{runname}"
 
         start_time = "2005-10-01"
