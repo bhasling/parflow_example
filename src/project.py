@@ -49,16 +49,31 @@ def create_project(project_options: dict, directory_path: str = "project_dir") -
     This uses pf_tools to run a parflow simulation and writes the output simulated files
     into the same directory_path.
 
-    After creating a project use the runscript path returned by this function to execute a
-    parflow simulation using the parflow python component:
-        model = parflow.Run.from_definition(runscript)
-        model.run()
-
     For more advanced usage of parflow you may specify your own parflow template and collect
     additional input files into the project directory used by your template.
 
     Returns:
         The runscript as a the path to the parflow yaml file generated in the directory path.
+
+    Example:
+
+    .. code-block:: python
+        project_options = {
+            "run_type": "transient",
+            "grid_bounds": [3749, 1583, 3759, 1593],
+            "start_date": "2005-10-01",
+            "end_date": "2005-10-02",
+            "time_steps": 10,
+            "topology": (1, 1, 1)
+        }
+        directory_path = "./trivial"
+
+        # Create the parflow model and generated input files
+        runscript_path = project.create_project(project_options, directory_path)
+
+        # Run the parflow model
+        model = parflow.Run.from_definition(runscript_path)
+        model.run()
 
     """
 
