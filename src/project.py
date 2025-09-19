@@ -25,10 +25,10 @@ def create_project(project_options: dict, directory_path: str = "project_dir") -
     The project_options dict supports the keys:
         run_type:       Either "transient" or "spinup" (defaults to "transient").
         template:       The path to a parflow yaml file for parflow parameters (optional).
-        start_date:     The start date of the run as as string YYYY-mm-dd
-        end_date:       The end date of the run as as string YYYY-mm-dd
+        start_date:     The start date of the run as as string YYYY-mm-dd.
+        end_date:       The end date of the run as as string YYYY-mm-dd.
         time_steps:     The number of timesteps to run parflow (defaults to hours between start/end).
-        hucs:           An array of HUC id to subset inputs and outputs (optional).
+        huc_id:         An array or comma seperated list of HUC id to subset inputs and outputs (optional).
         grid_bounds:    The conus2 points to subset (min_x, min_y, max_x, max_y) (optional).
         latlon_bounds:  The latlon bounds to subset ((min,lat, min_lon),(max_lat, max_lon) (optional).
         forcing_day:    Use fixed forcing data for every input hour using this day (YYYY-mm-dd).
@@ -37,8 +37,8 @@ def create_project(project_options: dict, directory_path: str = "project_dir") -
         topology:       An array or tuple [p, q, r] that defines the topology for generated pfb files.
 
     Only one of hucs, grid_bounds or latlon_bounds may be provided.
-    Only one of run_type or template may be provided. the run_type specifies a template.
-    The toplogy defaults to (1,1,1).
+    If template is provided this overrides the run_type.
+    The topology defaults to (1,1,1).
 
     The hucs may be a string of a comma seperated list of HUC id or an array of HUC id.
 
@@ -330,11 +330,12 @@ def _get_time_space_options(options):
 
     grid_bounds = options.get("grid_bounds", None)
     latlon_bounds = options.get("latlon_bounds", None)
-    hucs = options.get("hucs", None)
+    huc_id = options.get("huc_id", None)
     grid = options.get("grid", "conus2")
     start_date = options.get("start_date", "2001-01-01")
     end_date = options.get("end_date", "2001-01-02")
-    if hucs:
+    if huc_id:
+        hucs = list(huc_id) if isinstance(huc_id, tuple) else huc_id if isinstance(huc_id, list) else huc_id.split(",")
         ij_bounds, mask = st.define_huc_domain(hucs=hucs, grid=grid)
         lat_min, lon_min = hf.to_latlon(grid, ij_bounds[0], ij_bounds[1])
         lat_max, lon_max = hf.to_latlon(grid, ij_bounds[2] - 1, ij_bounds[3] - 1)

@@ -25,7 +25,7 @@ def test_huc8():
         start_date = "2005-10-01"
         end_date = "2005-10-02"
         options = {
-            "hucs": ["02080203"],
+            "huc_id": ["02080203"],
             "grid": "conus2",
             "start_date": start_date,
             "end_date": end_date,
