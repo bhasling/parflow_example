@@ -9,10 +9,10 @@ import parflow
 import pytest
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
-import pf_util
+import project
 
 
-def test_fixed_forcing_box():
+def test_trivial():
     """
     Test generating a parflow directory and execute model and assert start/end pressure values for a box
     Use a box with radius 5 around the same target point that is the center of HUC 02080203
@@ -20,46 +20,34 @@ def test_fixed_forcing_box():
     """
 
     try:
-        runname = "trival"
-        directory_path = f"./{runname}"
-
-        start_time = "2005-10-01"
-        end_time = "2005-10-02"
-        target_x = 3754
-        target_y = 1588
-        target_radius = 5
-        time_steps = 10
-        grid_bounds = [
-            target_x - target_radius,
-            target_y - target_radius,
-            target_x + target_radius,
-            target_y + target_radius,
-        ]
-        parflow_options = {
-            "grid_bounds": grid_bounds,
+        project_options = {
+            "run_type": "transient",
+            "grid_bounds": [3749, 1583, 3759, 1593],
             "grid": "conus2",
-            "start_time": start_time,
-            "end_time": end_time,
-            "time_steps": time_steps,
-            "forcing_day": start_time,
+            "start_date": "2005-10-01",
+            "end_date": "2005-10-02",
+            "time_steps": 10,
+            "forcing_day": "2005-10-01",
+            "topology": (2, 2, 1)
         }
+        directory_path = "./trivial"
 
         # Create the parflow model and generated input files
-        runscript_path = pf_util.create_project_dir(directory_path, parflow_options)
-        model = parflow.Run.from_definition(runscript_path)
-        model.write(file_format="yaml")
+        runscript_path = project.create_project(project_options, directory_path)
 
         # Run the parflow model
+        model = parflow.Run.from_definition(runscript_path)
         model.run()
 
         # Verify the result
-        time_step = time_steps - 1
+        time_step = 9
         nx = model.ComputationalGrid.NX
         ny = model.ComputationalGrid.NY
         nz = model.ComputationalGrid.NZ
         x = int(nx / 2)
         y = int(ny / 2)
         z = nz - 1
+        runname = os.path.basename(directory_path)
         out_path = f"{directory_path}/{runname}.out.press.{time_step:05d}.pfb"
         out_press_np = parflow.read_pfb(out_path)
         print(f"OUT PRESS ({z},{y},{x}) {out_press_np[z, y, x]} [{time_step}]")

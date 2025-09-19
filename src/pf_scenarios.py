@@ -3,7 +3,7 @@
 """
 import os
 import parflow
-import pf_util
+import project
 
 def generate_scenarios():
     start_pressure_options = ["small", "large"]
@@ -15,8 +15,8 @@ def generate_scenarios():
 
 def generate_scenario(start_pressure_option, forcing_input_option):
     scenario_options = {}
-    scenario_options["start_time"] = "2005-10-01"
-    scenario_options["end_time"] = "2005-10-02"
+    scenario_options["start_date"] = "2005-10-01"
+    scenario_options["end_date"] = "2005-10-02"
     scenario_options["timesteps"] = 10
     if start_pressure_option == "small":
         scenario_options["target_x"] = 3754
@@ -51,8 +51,8 @@ def execute_run(runname, scenario_options):
     os.makedirs(directory_path, exist_ok=True)
 
 
-    start_time = scenario_options.get("start_time")
-    end_time = scenario_options.get("end_time")
+    start_date = scenario_options.get("start_date")
+    end_date = scenario_options.get("end_date")
     target_x = scenario_options.get("target_x")
     target_y = scenario_options.get("target_y")
     time_steps = scenario_options.get("time_steps")
@@ -68,8 +68,8 @@ def execute_run(runname, scenario_options):
     options = {
         "grid_bounds": grid_bounds,
         "grid": "conus2",
-        "start_time": start_time,
-        "end_time": end_time,
+        "start_date": start_date,
+        "end_date": end_date,
         "forcing_day": forcing_day,
         "precip" : precip
     }
@@ -77,7 +77,7 @@ def execute_run(runname, scenario_options):
         options["time_steps"] = time_steps
 
     # Create the parflow model and generated input files
-    runscript_path = pf_util.create_model(runname, options, directory_path)
+    runscript_path = project.create_project(options, directory_path)
     model = parflow.Run.from_definition(runscript_path)
     model.write(file_format="yaml")
 
