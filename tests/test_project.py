@@ -133,7 +133,7 @@ def test_fixed_forcing_box():
             "end_date": end_date,
             "time_steps": 10,
             "forcing_day": start_date,
-            "dataset_version": "1.0"
+            "dataset_version": "1.0",
         }
 
         # Create the parflow model and generated input files
@@ -157,6 +157,44 @@ def test_fixed_forcing_box():
         raise e
 
 
+def test_spinup():
+    """
+    Test generating a parflow directory and execute model and assert start/end pressure values for a box
+    Use a box with radius 5 around the same target point that is the center of HUC 02080203
+    This should get the same answer as the HUC test, but with a smaller parflow domain.
+    """
+
+    try:
+        project_options = {
+            "run_type": "spinup",
+            "grid_bounds": [3749, 1583, 3759, 1593],
+            "start_date": "2005-10-01",
+            "end_date": "2005-10-02",
+            "dump_interval": "5",
+        }
+        directory_path = "./spinup"
+
+        # Create the parflow model and generated input files
+        runscript_path = project.create_project(project_options, directory_path)
+        model = parflow.Run.from_definition(runscript_path)
+
+        # Run the parflow model
+        model.run()
+
+        runname = os.path.basename(directory_path)
+        initial_press_np = parflow.read_pfb(f"{directory_path}/ss_pressure_head.pfb")
+        assert initial_press_np[9, 5, 5] == pytest.approx(0.003443, abs=0.00001)
+
+        out_path = f"{directory_path}/{runname}.out.press.{1:05d}.pfb"
+        out_press_np = parflow.read_pfb(out_path)
+        top_layer_pressure = out_press_np
+        print("OUT", top_layer_pressure[9, 5, 5])
+        assert top_layer_pressure[9, 5, 5] == pytest.approx(0.0, abs=0.00001)
+
+    except Exception as e:
+        raise e
+
+
 def verify_pressure(runscript_path, start_pressure, end_pressure):
     """Print the start and end pressure of the parflow run and assert expected values."""
 
@@ -170,7 +208,7 @@ def verify_pressure(runscript_path, start_pressure, end_pressure):
     domain_x = model.ComputationalGrid.Lower.X
     domain_y = model.ComputationalGrid.Lower.Y
     print(f"DOMAIN XY = ({domain_x}, {domain_y})")
-    print("Num Time Steps", stop_time) 
+    print("Num Time Steps", stop_time)
     initial_press_np = parflow.read_pfb(f"{directory_path}/ss_pressure_head.pfb")
     print("INI PRESS_SHAPE", initial_press_np.shape)
     x = int(nx / 2)

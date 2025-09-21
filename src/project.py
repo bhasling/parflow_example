@@ -28,6 +28,7 @@ def create_project(project_options: dict, directory_path: str = "project_dir") -
         start_date:     The start date of the run as as string YYYY-mm-dd.
         end_date:       The end date of the run as as string YYYY-mm-dd.
         time_steps:     The number of timesteps to run parflow (defaults to hours between start/end).
+        dump_interval:  The number of timesteps to dump parflow output files
         huc_id:         An array or comma seperated list of HUC id to subset inputs and outputs (optional).
         grid_bounds:    The conus2 points to subset (min_x, min_y, max_x, max_y) (optional).
         latlon_bounds:  The latlon bounds to subset ((min,lat, min_lon),(max_lat, max_lon) (optional).
@@ -81,10 +82,12 @@ def create_project(project_options: dict, directory_path: str = "project_dir") -
     run_type = project_options.get("run_type")
     template = project_options.get("template")
     if not template:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        print("**** BASEDIR", base_dir)
         if run_type == "transient":
-            template = "conus2_transient_solid.yaml"
+            template = f"{base_dir}/template_runscripts/conus2_transient_solid.yaml"
         elif run_type == "spinup":
-            template = "conus2_spinup_solid.yaml"
+            template = f"{base_dir}/template_runscripts/conus2_spinup_solid.yaml"
         elif run_type:
             raise ValueError(
                 f"Unsupported run_type '{run_type}'. Must be transient or spinup."
@@ -178,14 +181,18 @@ def _create_topology(runscript_path: str, project_options: dict):
     model.write(file_format="yaml")
 
 
-def _create_static_and_forcing(runscript_path: str, options: dict, runname: str):
+def _create_static_and_forcing(
+    runscript_path: str, project_options: dict, runname: str
+):
     """
     Create the static input and forcing files and add the references to the model and runscript.yaml file
     """
     model = parflow.Run.from_definition(runscript_path)
     directory_path = os.path.dirname(runscript_path)
 
-    mask, grid, ij_bounds, _, start_date, end_date = _get_time_space_options(options)
+    mask, grid, ij_bounds, _, start_date, end_date = _get_time_space_options(
+        project_options
+    )
 
     st.write_mask_solid(mask=mask, grid=grid, write_dir=directory_path)
 
@@ -199,78 +206,84 @@ def _create_static_and_forcing(runscript_path: str, options: dict, runname: str)
         write_dir=directory_path,
     )
 
-    forcing_dir_path = directory_path
-    os.makedirs(forcing_dir_path, exist_ok=True)
-    forcing_day = options.get("forcing_day", None)
-    forcing_ds = "CW3E"
-    if forcing_day:
-        # use fixed values for all forcing hour inputs
-        precip = options.get("precip", None)
-        start_time_dt = datetime.datetime.strptime(start_date, "%Y-%m-%d")
-        end_time_dt = datetime.datetime.strptime(end_date, "%Y-%m-%d")
-        forcing_variables = [
-            "downward_shortwave",
-            "precipitation",
-            "downward_longwave",
-            "specific_humidity",
-            "air_temp",
-            "atmospheric_pressure",
-            "east_windspeed",
-            "north_windspeed",
-        ]
-        for variable in forcing_variables:
-            # Get the forcing data for all variables
-            options = {
-                "dataset": forcing_ds,
-                "variable": variable,
-                "grid_bounds": list(ij_bounds),
-                "temporal_resolution": "daily",
-                "start_time": forcing_day,
-                "aggregation": "sum" if variable == "precipitation" else "mean",
-                "dataset_version": "1.0",
-            }
-            metadata = hf.get_catalog_entry(options)
-            dataset_var = (
-                "Press"
-                if variable == "atmospheric_pressure"
-                else "Temp" if variable == "air_temp" else metadata.get("dataset_var")
+    if _is_transient(project_options):
+        print("**** GENERATE FORCING")
+        forcing_dir_path = directory_path
+        os.makedirs(forcing_dir_path, exist_ok=True)
+        forcing_day = project_options.get("forcing_day", None)
+        forcing_ds = "CW3E"
+        if forcing_day:
+            # use fixed values for all forcing hour inputs
+            precip = project_options.get("precip", None)
+            start_time_dt = datetime.datetime.strptime(start_date, "%Y-%m-%d")
+            end_time_dt = datetime.datetime.strptime(end_date, "%Y-%m-%d")
+            forcing_variables = [
+                "downward_shortwave",
+                "precipitation",
+                "downward_longwave",
+                "specific_humidity",
+                "air_temp",
+                "atmospheric_pressure",
+                "east_windspeed",
+                "north_windspeed",
+            ]
+            for variable in forcing_variables:
+                # Get the forcing data for all variables
+                options = {
+                    "dataset": forcing_ds,
+                    "variable": variable,
+                    "grid_bounds": list(ij_bounds),
+                    "temporal_resolution": "daily",
+                    "start_time": forcing_day,
+                    "aggregation": "sum" if variable == "precipitation" else "mean",
+                    "dataset_version": "1.0",
+                }
+                metadata = hf.get_catalog_entry(options)
+                dataset_var = (
+                    "Press"
+                    if variable == "atmospheric_pressure"
+                    else (
+                        "Temp"
+                        if variable == "air_temp"
+                        else metadata.get("dataset_var")
+                    )
+                )
+
+                data = hf.get_gridded_data(options)
+                if variable == "precipitation":
+                    data = data / 24
+                    if precip:
+                        data[:, :, :] = float(precip)
+                day_data = np.zeros((24, data.shape[1], data.shape[2]))
+                for i in range(0, 24):
+                    # Set the data to be the same for all 24 hours in the PFB file
+                    day_data[i, :, :] = data[0, :, :]
+                dt = start_time_dt
+                day = 1
+                while dt < end_time_dt:
+                    # Create hourly pfb files for each day in the parflow run range to all be the same
+                    forcing_file_path = f"{forcing_dir_path}/{forcing_ds}.{dataset_var}.{day:06d}_to_{day+23:06d}.pfb"
+                    parflow.write_pfb(forcing_file_path, day_data)
+                    dt = dt + datetime.timedelta(days=1)
+                    day = day + 24
+        else:
+            # Get the forcing data from the CW3E dataset for the days in the parflow run range
+            st.subset_forcing(
+                ij_bounds,
+                grid=grid,
+                start=start_date,
+                end=end_date,
+                dataset=forcing_ds,
+                write_dir=forcing_dir_path,
             )
 
-            data = hf.get_gridded_data(options)
-            if variable == "precipitation":
-                data = data / 24
-                if precip:
-                    data[:, :, :] = float(precip)
-            day_data = np.zeros((24, data.shape[1], data.shape[2]))
-            for i in range(0, 24):
-                # Set the data to be the same for all 24 hours in the PFB file
-                day_data[i, :, :] = data[0, :, :]
-            dt = start_time_dt
-            day = 1
-            while dt < end_time_dt:
-                # Create hourly pfb files for each day in the parflow run range to all be the same
-                forcing_file_path = f"{forcing_dir_path}/{forcing_ds}.{dataset_var}.{day:06d}_to_{day+23:06d}.pfb"
-                parflow.write_pfb(forcing_file_path, day_data)
-                dt = dt + datetime.timedelta(days=1)
-                day = day + 24
-    else:
-        # Get the forcing data from the CW3E dataset for the days in the parflow run range
-        st.subset_forcing(
+        # Update the runscript yaml file with the forcing_dir_path
+        st.edit_runscript_for_subset(
             ij_bounds,
-            grid=grid,
-            start=start_date,
-            end=end_date,
-            dataset=forcing_ds,
-            write_dir=forcing_dir_path,
+            runscript_path=runscript_path,
+            runname=runname,
+            forcing_dir=forcing_dir_path,
         )
-
-    # Update the runscript yaml file with the forcing_dir_path
-    st.edit_runscript_for_subset(
-        ij_bounds,
-        runscript_path=runscript_path,
-        runname=runname,
-        forcing_dir=forcing_dir_path,
-    )
 
     # Update the file names of the generated parflow static files
     init_press_path = os.path.basename(static_paths["ss_pressure_head"])
@@ -288,26 +301,26 @@ def _create_static_and_forcing(runscript_path: str, options: dict, runname: str)
     model.write(file_format="yaml")
 
 
-def _create_dist_files(runscript_path: str, options: dict):
+def _create_dist_files(runscript_path: str, project_options: dict):
     """
     Create the parflow .dist files for the generated pfb files in the parflow directory.
     """
-    p = int(options.get("p", "1"))
-    q = int(options.get("q", "1"))
+    p = int(project_options.get("p", "1"))
+    q = int(project_options.get("q", "1"))
 
     st.dist_run(
         topo_p=p,
         topo_q=q,
         runscript_path=runscript_path,
-        dist_clim_forcing=True,
+        dist_clim_forcing=_is_transient(project_options),
     )
-    model = parflow.Run.from_definition(runscript_path)
 
     # Set the timesteps to use in the parflow run
-    time_steps = options.get("time_steps", None)
+    model = parflow.Run.from_definition(runscript_path)
+    time_steps = project_options.get("time_steps", None)
     if time_steps is None:
         # If time_steps is not set in the options use the hours between start and end time
-        _, _, _, _, start_date, end_date = _get_time_space_options(options)
+        _, _, _, _, start_date, end_date = _get_time_space_options(project_options)
         start_time_dt = datetime.datetime.strptime(start_date, "%Y-%m-%d")
         end_time_dt = datetime.datetime.strptime(end_date, "%Y-%m-%d")
         days_between = (end_time_dt - start_time_dt).days
@@ -318,6 +331,8 @@ def _create_dist_files(runscript_path: str, options: dict):
 
     # Reset the NZ that can be incorrectly set by st.dist_run
     model.ComputationalGrid.NZ = 10
+    if project_options.get("dump_interval"):
+        model.TimingInfo.DumpInterval = float(project_options.get("dump_interval"))
     model.write(file_format="yaml")
 
 
@@ -335,7 +350,11 @@ def _get_time_space_options(options):
     start_date = options.get("start_date", "2001-01-01")
     end_date = options.get("end_date", "2001-01-02")
     if huc_id:
-        hucs = list(huc_id) if isinstance(huc_id, tuple) else huc_id if isinstance(huc_id, list) else huc_id.split(",")
+        hucs = (
+            list(huc_id)
+            if isinstance(huc_id, tuple)
+            else huc_id if isinstance(huc_id, list) else huc_id.split(",")
+        )
         ij_bounds, mask = st.define_huc_domain(hucs=hucs, grid=grid)
         lat_min, lon_min = hf.to_latlon(grid, ij_bounds[0], ij_bounds[1])
         lat_max, lon_max = hf.to_latlon(grid, ij_bounds[2] - 1, ij_bounds[3] - 1)
@@ -354,3 +373,10 @@ def _get_time_space_options(options):
     else:
         raise ValueError("Must specify in options hucs, grid_bounds, or latlon_bounds")
     return (mask, grid, ij_bounds, latlon_bounds, start_date, end_date)
+
+
+def _is_transient(project_options: dict):
+    """Returns True if project is a transient project that requires forcing files."""
+
+    run_type = project_options.get("run_type")
+    return run_type != "spinup"
