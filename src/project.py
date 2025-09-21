@@ -83,7 +83,6 @@ def create_project(project_options: dict, directory_path: str = "project_dir") -
     template = project_options.get("template")
     if not template:
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        print("**** BASEDIR", base_dir)
         if run_type == "transient":
             template = f"{base_dir}/template_runscripts/conus2_transient_solid.yaml"
         elif run_type == "spinup":
@@ -207,7 +206,6 @@ def _create_static_and_forcing(
     )
 
     if _is_transient(project_options):
-        print("**** GENERATE FORCING")
         forcing_dir_path = directory_path
         os.makedirs(forcing_dir_path, exist_ok=True)
         forcing_day = project_options.get("forcing_day", None)
