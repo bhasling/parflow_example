@@ -303,8 +303,9 @@ def _create_dist_files(runscript_path: str, project_options: dict):
     """
     Create the parflow .dist files for the generated pfb files in the parflow directory.
     """
-    p = int(project_options.get("p", "1"))
-    q = int(project_options.get("q", "1"))
+    model = parflow.Run.from_definition(runscript_path)
+    p = model.Process.Topology.P
+    q = model.Process.Topology.Q
 
     st.dist_run(
         topo_p=p,
